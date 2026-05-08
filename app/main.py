@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import analysis, health
+from app.api.routes import health
 
 app = FastAPI(
     title="AI Analyzer Service",
@@ -19,4 +19,4 @@ app.add_middleware(
 
 # Подключаем роутеры
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
-app.include_router(analysis.router, prefix="/api/v1", tags=["analysis"])
+#app.include_router(analysis.router, prefix="/api/v1", tags=["analysis"])

@@ -1,0 +1,45 @@
+services:
+  ai_analyzer:
+    build: .
+    container_name: ai-analyzer-service
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8003:8000"
+    networks:
+      - ai-analyzer-network
+      - shared-network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ai-analyzer-redis
+    restart: unless-stopped
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-analyzer-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 60m
+
+volumes:
+  redis_data:
+
+networks:
+  ai-analyzer-network:
+    driver: bridge
+  
+  shared-network:
+    external: true
+    name: shared-network
