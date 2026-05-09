@@ -33,6 +33,41 @@ services:
       retries: 3
     mem_limit: 60m
 
+  celery_worker:
+    build: .
+    container_name: ai-analyzer-celery
+    restart: unless-stopped
+    env_file: .env
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    volumes:
+      - logs:/app/logs
+    networks:
+      - ai-analyzer-network
+      - shared-network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-analyzer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_analyzer
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-analyzer-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_analyzer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   redis_data:
   logs:

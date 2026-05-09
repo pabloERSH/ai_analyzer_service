@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Form
 from app.api.schemas.analysis import AnalysisResponse, TaskStatus, AnalysisStatus
 from app.api.dependencies import get_current_user, get_token_from_header
 from app.api.services.auth import AuthenticatedUser
-from app.api.services.analyzer import AnalysisService
+from app.tasks.analysis_tasks import analyze_user_data_task
 from datetime import datetime
 import uuid
 import logging
@@ -10,8 +10,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Временное хранилище задач (позже заменим на БД)
 tasks_store = {}
 
 
@@ -22,17 +20,9 @@ async def create_analysis(
     current_user: AuthenticatedUser = Depends(get_current_user),
     token: str = Depends(get_token_from_header),
 ):
-    """
-    Создаёт задачу на AI-анализ.
-
-    Принимает form-data:
-    - period_days: глубина анализа в днях (3-31)
-    - analysis_type: full, nutrition или training
-
-    Возвращает task_id для отслеживания статуса.
-    """
+    """Создаёт асинхронную задачу анализа через Celery. Возвращает task_id сразу."""
     task_id = str(uuid.uuid4())
-
+    
     task = {
         "task_id": task_id,
         "status": AnalysisStatus.PENDING,
@@ -44,27 +34,15 @@ async def create_analysis(
         "completed_at": None,
         "error_message": None,
     }
-
+    
+    # Запускаем Celery задачу
+    celery_task = analyze_user_data_task.delay(token=token, period_days=period_days)
+    task["celery_task_id"] = celery_task.id
+    
     tasks_store[task_id] = task
-
-    try:
-        analysis_service = AnalysisService()
-        result = await analysis_service.analyze_user_data(
-            token=token, period_days=period_days
-        )
-
-        task["status"] = AnalysisStatus.COMPLETED
-        task["completed_at"] = datetime.now()
-        task["result"] = result
-
-        logger.info(f"Task {task_id} completed successfully")
-
-    except Exception as e:
-        logger.error(f"Task {task_id} failed: {e}")
-        task["status"] = AnalysisStatus.FAILED
-        task["completed_at"] = datetime.now()
-        task["error_message"] = str(e)
-
+    
+    logger.info(f"Task {task_id} created, celery: {celery_task.id}")
+    
     return AnalysisResponse(**task)
 
 
@@ -73,21 +51,33 @@ async def get_task_status(
     task_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """Проверка статуса задачи (для polling)"""
+    """Проверка статуса задачи (polling)"""
     task = tasks_store.get(task_id)
-
+    
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
-
     if task["telegram_id"] != current_user.telegram_id:
         raise HTTPException(status_code=403, detail="Доступ запрещён")
-
-    progress = (
-        100
-        if task["status"] in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)
-        else 50
-    )
-
+    
+    # Проверяем Celery
+    celery_task_id = task.get("celery_task_id")
+    if celery_task_id:
+        celery_result = analyze_user_data_task.AsyncResult(celery_task_id)
+        
+        if celery_result.state == "STARTED":
+            task["status"] = AnalysisStatus.PROCESSING
+        elif celery_result.ready():
+            if celery_result.successful():
+                task["status"] = AnalysisStatus.COMPLETED
+                task["completed_at"] = datetime.now()
+                task["result"] = celery_result.result
+            else:
+                task["status"] = AnalysisStatus.FAILED
+                task["completed_at"] = datetime.now()
+                task["error_message"] = str(celery_result.info)
+    
+    progress = 100 if task["status"] in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED) else 50
+    
     return TaskStatus(task_id=task_id, status=task["status"], progress=progress)
 
 
@@ -96,24 +86,23 @@ async def get_analysis_result(
     task_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """Получение результата анализа"""
+    """Получение результата"""
     task = tasks_store.get(task_id)
-
+    
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
-
     if task["telegram_id"] != current_user.telegram_id:
         raise HTTPException(status_code=403, detail="Доступ запрещён")
-
-    if task["status"] == AnalysisStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Анализ ещё не начат")
-
-    if task["status"] == AnalysisStatus.PROCESSING:
+    
+    # Проверяем Celery
+    celery_task_id = task.get("celery_task_id")
+    if celery_task_id:
+        celery_result = analyze_user_data_task.AsyncResult(celery_task_id)
+        if celery_result.ready() and celery_result.successful():
+            task["result"] = celery_result.result
+            task["status"] = AnalysisStatus.COMPLETED
+    
+    if task["status"] != AnalysisStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Анализ ещё не завершён")
-
-    if task["status"] == AnalysisStatus.FAILED:
-        raise HTTPException(
-            status_code=500, detail=task.get("error_message", "Ошибка анализа")
-        )
-
+    
     return AnalysisResponse(**task)
