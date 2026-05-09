@@ -35,6 +35,7 @@ services:
 
 volumes:
   redis_data:
+  logs:
 
 networks:
   ai-analyzer-network:
