@@ -83,12 +83,13 @@ async def send_message(system_prompt: str, user_message: str) -> str:
 
         return content
 
+
 def send_message_sync(system_prompt: str, user_message: str) -> str:
     """Синхронная обёртка для Celery"""
     import asyncio
+
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(send_message(system_prompt, user_message))
     finally:
         loop.close()
-
