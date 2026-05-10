@@ -2,7 +2,7 @@ import json
 import asyncio
 import logging
 from app.tasks.celery_app import celery_app
-from app.api.services.diary import DiaryServiceClient
+from app.api.services.diary import DiaryServiceClient, InsufficientDataError
 from app.api.services.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -33,12 +33,19 @@ def analyze_user_data_task(self, token: str, period_days: int = 7):
     try:
         # Шаг 1: получаем отчёт из Diary Service
         diary_client = DiaryServiceClient()
-        report = _run_async(
-            diary_client.get_weekly_report(
+
+        try:
+            report = _run_async(diary_client.get_weekly_report(
                 token=token, period_days=period_days, include_previous_week=True
-            )
-        )
-        logger.info("Report received from Diary Service")
+            ))
+            logger.info("Report received from Diary Service")
+        except InsufficientDataError as e:
+            # Недостаточно данных — возвращаем информативный ответ
+            return {
+                "error": "insufficient_data",
+                "message": e.message,
+                "data_quality": e.data,
+            }
 
         # Шаг 2: формируем промпт
         prompt_builder = PromptBuilder()

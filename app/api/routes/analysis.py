@@ -15,35 +15,51 @@ tasks_store = {}
 
 
 @router.post("/analysis", response_model=AnalysisResponse)
-async def create_analysis(
+async def create_analysis(    
     period_days: int = Form(default=7, ge=3, le=31),
     analysis_type: str = Form(default="full", pattern="^(full|nutrition|training)$"),
     current_user: AuthenticatedUser = Depends(get_current_user),
     token: str = Depends(get_token_from_header),
-):
-    """Создаёт асинхронную задачу анализа через Celery. Возвращает task_id сразу."""
-    task_id = str(uuid.uuid4())
+    ):
 
+    task_id = str(uuid.uuid4())
+    
     task = {
         "task_id": task_id,
         "status": AnalysisStatus.PENDING,
         "telegram_id": current_user.telegram_id,
         "period_days": period_days,
         "analysis_type": analysis_type,
+        "source": None,
         "result": None,
         "created_at": datetime.now(),
         "completed_at": None,
         "error_message": None,
     }
-
-    # Запускаем Celery задачу
+    
+    # Проверяем кэш
+    try:
+        from app.api.services.analysis_cache import get_cached_by_task
+        cached_result = await get_cached_by_task(
+            telegram_id=current_user.telegram_id,
+            period_days=period_days,
+        )
+        if cached_result:
+            task["status"] = AnalysisStatus.COMPLETED
+            task["completed_at"] = datetime.now()
+            task["source"] = "cache"
+            task["result"] = cached_result
+            tasks_store[task_id] = task
+            return AnalysisResponse(**task)
+    except Exception as e:
+        logger.warning(f"Cache check failed: {e}")
+    
+    tasks_store[task_id] = task
+    
+    # Запускаем Celery
     celery_task = analyze_user_data_task.delay(token=token, period_days=period_days)
     task["celery_task_id"] = celery_task.id
-
-    tasks_store[task_id] = task
-
-    logger.info(f"Task {task_id} created, celery: {celery_task.id}")
-
+    
     return AnalysisResponse(**task)
 
 

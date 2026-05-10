@@ -11,6 +11,7 @@ class AnalysisStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    INSUFFICIENT_DATA = "insufficient_data" 
 
 
 class AnalysisRequest(BaseModel):
