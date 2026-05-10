@@ -75,3 +75,71 @@ def analyze_user_data_task(self, token: str, period_days: int = 7):
     except Exception as e:
         logger.error(f"Task failed: {e}")
         raise
+
+
+# Тест
+
+@celery_app.task(bind=True, name="analyze_user_data_test")
+def analyze_user_data_test_task(self, token: str, period_days: int = 7):
+    """
+    Тестовая Celery задача — без вызова GigaChat.
+    Симулирует задержку 0.5-1.5 секунды как реальный запрос.
+    """
+    import time
+    import random
+    
+    logger.info(f"Test Celery task started: {self.request.id}, period_days={period_days}")
+    
+    # Симулируем задержку как у реального запроса
+    delay = random.uniform(0.5, 1.5)
+    time.sleep(delay)
+    
+    try:
+        # Получаем отчёт из Diary Service (реальный запрос)
+        diary_client = DiaryServiceClient()
+        report = _run_async(diary_client.get_weekly_report(
+            token=token, period_days=period_days, include_previous_week=True
+        ))
+        logger.info(f"Report received from Diary Service (test mode)")
+        
+        # Мок-анализ вместо GigaChat
+        analysis = {
+            "title": f"Тестовый анализ (нагрузочное тестирование)",
+            "nutrition_section": {
+                "summary": "Мок-ответ для нагрузочного тестирования",
+                "calories": "Тест",
+                "protein": "Тест",
+                "fats": "Тест",
+                "carbs": "Тест",
+                "consistency": "Тест",
+                "trend_vs_previous": "Тест",
+                "action_items": ["Тестовая рекомендация 1", "Тестовая рекомендация 2"],
+            },
+            "training_section": {
+                "summary": "Мок-ответ",
+                "frequency": "Тест",
+                "volume": "Тест",
+                "muscle_balance": "Тест",
+                "alerts": "Тест",
+                "action_items": ["Тестовая рекомендация"],
+            },
+            "overall_verdict": {
+                "rating": 5,
+                "text": f"Нагрузочное тестирование. Задержка: {delay:.1f}с",
+            },
+        }
+        
+        result = {
+            "report": report,
+            "analysis": analysis,
+            "source": "mock_load_test",
+            "delay": round(delay, 2),
+        }
+        
+        logger.info(f"Test task completed: {self.request.id}, delay={delay:.1f}s")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Test task failed: {e}")
+        raise
+    

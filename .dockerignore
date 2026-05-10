@@ -12,6 +12,10 @@ __pycache__/
 logs/
 *.log
 
+# Тесты
+report.html
+locustfile.py
+
 # Виртуальные окружения
 venv/
 .env/
