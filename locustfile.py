@@ -10,10 +10,6 @@ class AIAnalyzerUser(HttpUser):
         self.task_ids = []
     
     @task(3)
-    def health_check(self):
-        self.client.get("/api/v1/health")
-    
-    @task(2)
     def create_load_test(self):
         with self.client.post(
             "/api/v1/analysis/load-test",
@@ -25,7 +21,7 @@ class AIAnalyzerUser(HttpUser):
                 if task_id:
                     self.task_ids.append(task_id)
     
-    @task(1)
+    @task(2)
     def check_status(self):
         if self.task_ids:
             task_id = random.choice(self.task_ids[-10:])

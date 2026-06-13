@@ -14,7 +14,7 @@ router = APIRouter()
 tasks_store = {}
 
 
-@router.post("/analysis", response_model=AnalysisResponse)
+@router.post("/analysis/", response_model=AnalysisResponse)
 async def create_analysis(    
     period_days: int = Form(default=7, ge=3, le=31),
     analysis_type: str = Form(default="full", pattern="^(full|nutrition|training)$"),
